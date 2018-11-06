@@ -24,6 +24,7 @@ local Bpf = class("BPF")
 
 Bpf.static.open_kprobes = {}
 Bpf.static.open_uprobes = {}
+Bpf.static.open_xdp     = {}
 Bpf.static.perf_buffers = {}
 Bpf.static.KPROBE_LIMIT = 1000
 Bpf.static.tracer_pipe = nil
@@ -41,13 +42,18 @@ end
 function Bpf.static.cleanup()
   local function detach_all(probe_type, all_probes)
     for key, fd in pairs(all_probes) do
-      libbcc.bpf_close_perf_event_fd(fd)
+      if probe_type ~= "xdp" then
+        libbcc.bpf_close_perf_event_fd(fd)
+      end
+
       -- skip bcc-specific kprobes
       if not key:starts("bcc:") then
         if probe_type == "kprobes" then
           libbcc.bpf_detach_kprobe(key)
         elseif probe_type == "uprobes" then
           libbcc.bpf_detach_uprobe(key)
+        elseif probe_type == "xdp" then
+          Bpf.static.remove_xdp{device=key}
         end
       end
       all_probes[key] = nil
@@ -56,6 +62,7 @@ function Bpf.static.cleanup()
 
   detach_all("kprobes", Bpf.static.open_kprobes)
   detach_all("uprobes", Bpf.static.open_uprobes)
+  detach_all("xdp", Bpf.static.open_xdp)
 
   for key, perf_buffer in pairs(Bpf.static.perf_buffers) do
     libbcc.perf_reader_free(perf_buffer)
@@ -221,6 +228,27 @@ function Bpf:attach_kprobe(args)
   return self
 end
 
+function Bpf:attach_xdp(args)
+  local fn = self:load_func(args.fn_name, 'BPF_PROG_TYPE_XDP')
+  local device = args.device
+  local flags = args.flags or 0
+
+  local res = libbcc.bpf_attach_xdp(device, fn.fd, flags)
+
+  assert(res >= 0, "failed to attach BPF/XDP to " .. device)
+  self:probe_store("xdp", device, res)
+  return self
+end
+
+function Bpf.static.remove_xdp(args)
+  local device = args.device
+  local flags = args.flags or 0
+
+  local res = libbcc.bpf_attach_xdp(device, -1, flags)
+
+  assert(res >= 0, "failed to detach BPF/XDP from " .. device)
+end
+
 function Bpf:pipe()
   if Bpf.tracer_pipe == nil then
     Bpf.tracer_pipe = TracerPipe:new()
@@ -240,6 +268,8 @@ function Bpf:probe_store(t, id, fd)
     Bpf.open_kprobes[id] = fd
   elseif t == "uprobe" then
     Bpf.open_uprobes[id] = fd
+  elseif t == "xdp" then
+    Bpf.open_xdp[id] = fd
   else
     error("unknown probe type '%s'" % t)
   end

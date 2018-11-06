@@ -22,6 +22,8 @@ enum bpf_prog_type {
   BPF_PROG_TYPE_KPROBE,
   BPF_PROG_TYPE_SCHED_CLS,
   BPF_PROG_TYPE_SCHED_ACT,
+  BPF_PROG_TYPE_TRACEPOINT,
+  BPF_PROG_TYPE_XDP,
 };
 
 int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size, int max_entries, int map_flags);
@@ -53,6 +55,8 @@ int bpf_attach_uprobe(int progfd, int attach_type, const char *ev_name,
 int bpf_detach_uprobe(const char *ev_name);
 
 void * bpf_open_perf_buffer(perf_reader_raw_cb raw_cb, perf_reader_lost_cb lost_cb, void *cb_cookie, int pid, int cpu, int page_cnt);
+
+int bpf_attach_xdp(const char *dev_name, int progfd, uint32_t flags);
 
 int bpf_close_perf_event_fd(int fd);
 ]]
