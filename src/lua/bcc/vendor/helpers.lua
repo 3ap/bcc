@@ -167,6 +167,35 @@ function os.spawn(...)
   return out
 end
 
+local function _read_cpu_range(path)
+  local f = io.open(path,"r")
+
+  local cpus = {}
+  local cpus_range_str = f:read("*all")
+  io.close(f)
+
+  for idx, cpu_range in ipairs(cpus_range_str:split(',', true)) do
+    local rangeop = cpu_range:find('-')
+    if rangeop == nil then
+      table.insert(cpus, tonumber(cpu_range))
+    else
+      local first = tonumber(cpu_range:sub(1,rangeop-1))
+      local last = tonumber(cpu_range:sub(rangeop+1))
+      for i=first,last do table.insert(cpus, i) end
+    end
+  end
+
+  return cpus
+end
+
+function os.get_online_cpus()
+    return _read_cpu_range('/sys/devices/system/cpu/online')
+end
+
+function os.get_possible_cpus()
+    return _read_cpu_range('/sys/devices/system/cpu/possible')
+end
+
 local function logline(...)
   if not log.enabled then
     return

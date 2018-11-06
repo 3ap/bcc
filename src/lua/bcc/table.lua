@@ -13,6 +13,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ]]
+require("bcc.vendor.helpers")
+
 local ffi = require("ffi")
 local libbcc = require("bcc.libbcc")
 local Posix = require("bcc.vendor.posix")
@@ -40,6 +42,7 @@ function BaseTable:initialize(t_type, bpf, map_id, map_fd, key_type, leaf_type)
   self.map_fd = map_fd
   self.c_key = ffi.typeof(key_type.."[1]")
   self.c_leaf = ffi.typeof(leaf_type.."[1]")
+  self.c_sleaf = ffi.typeof(leaf_type.."[1]")
 end
 
 function BaseTable:key_sprintf(key)
@@ -214,10 +217,16 @@ function BaseArray:items(with_index)
       return nil
     end
 
+    local result = {}
+    local count = math.floor(ffi.sizeof(self.c_leaf) / ffi.sizeof(self.c_sleaf))
+    for i=0,count-1 do
+      table.insert(result, pvalue[i])
+    end
+
     if with_index then
-      return n, pvalue[0] -- return 1-based index
+      return n, result
     else
-      return pvalue[0]
+      return result
     end
   end
 end
@@ -230,7 +239,13 @@ function Array:initialize(bpf, map_id, map_fd, key_type, leaf_type)
   BaseArray.initialize(self, BaseTable.BPF_MAP_TYPE_ARRAY, bpf, map_id, map_fd, key_type, leaf_type)
 end
 
+local PerCpuArray = class("PerCpuArray", BaseArray)
 
+function PerCpuArray:initialize(bpf, map_id, map_fd, key_type, leaf_type)
+  BaseArray.initialize(self, BaseTable.BPF_MAP_TYPE_PERCPU_ARRAY, bpf, map_id, map_fd, key_type, leaf_type)
+  local total_cpu = os.get_possible_cpus()
+  self.c_leaf = ffi.typeof("%s[%d]" % { leaf_type, #total_cpu })
+end
 
 local PerfEventArray = class("PerfEventArray", BaseArray)
 
@@ -379,6 +394,8 @@ local function NewTable(bpf, name, key_type, leaf_type)
     table = PerfEventArray
   elseif t_type == BaseTable.BPF_MAP_TYPE_STACK_TRACE then
     table = StackTrace
+  elseif t_type == BaseTable.BPF_MAP_TYPE_PERCPU_ARRAY then
+    table = PerCpuArray
   end
 
   assert(table, "unsupported table type %d" % t_type)
